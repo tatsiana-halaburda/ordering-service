@@ -1,0 +1,8 @@
+services:
+  ordering:
+    platform: linux/amd64
+    build: .
+    command: uvicorn services.ordering.main:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+    env_file: .env
