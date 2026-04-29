@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
@@ -17,7 +18,15 @@ logger = logging.getLogger(__name__)
 INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://localhost:8001").rstrip("/")
 HTTP_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
 
-app = FastAPI(title="Ordering Service", version="1.0.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    logger.info("Ordering service starting (INVENTORY_SERVICE_URL=%s)", INVENTORY_SERVICE_URL)
+    yield
+    logger.info("Ordering service shutting down")
+
+
+app = FastAPI(title="Ordering Service", version="1.0.0", lifespan=_lifespan)
 
 
 def _load_order_sync(order_id: uuid.UUID) -> tuple[pyodbc.Row, list[pyodbc.Row], list[pyodbc.Row]]:
@@ -235,6 +244,7 @@ def create_order(body: OrderCreate) -> OrderSummary:
             "item_count": len(body.items),
         }
     )
+    logger.info("Order created: order_id=%s items=%d total_cost=%s", oid, len(body.items), total)
     return summary
 
 
@@ -267,6 +277,7 @@ async def get_order(id: uuid.UUID) -> OrderDetail:
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Order not found") from exc
     except Exception as exc:
+        logger.exception("Failed to load order %s from database", id)
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
 
     ingredient_ids: set[uuid.UUID] = set()

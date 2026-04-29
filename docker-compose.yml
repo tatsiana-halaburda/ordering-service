@@ -1,3 +1,5 @@
+# Compose reads `.env` next to this file for ${VAR} substitution. Copy `.env.example` → `.env` and fill values.
+
 services:
   ordering:
     platform: linux/amd64
@@ -6,3 +8,13 @@ services:
     ports:
       - "8002:8002"
     env_file: .env
+    environment:
+      DB_SERVER: ${DB_SERVER:-}
+      DB_DATABASE: ${DB_DATABASE:-}
+      DB_USERNAME: ${DB_USERNAME:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      AZURE_SQL_CONNECTION_STRING: ${AZURE_SQL_CONNECTION_STRING:-}
+      DB_ODBC_DRIVER: ${DB_ODBC_DRIVER:-ODBC Driver 18 for SQL Server}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://localhost:8001}
+      AZURE_SERVICEBUS_SEND_CONNECTION_STRING: ${AZURE_SERVICEBUS_SEND_CONNECTION_STRING:-}
+      AZURE_SERVICEBUS_QUEUE_NAME: ${AZURE_SERVICEBUS_QUEUE_NAME:-}

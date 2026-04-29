@@ -1,11 +1,13 @@
+import logging
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import pyodbc
 from dotenv import load_dotenv
 
-import pyodbc
+logger = logging.getLogger(__name__)
 
 # .env next to repo root (works even if cwd isn't the project folder)
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +92,7 @@ def transaction() -> Iterator[pyodbc.Cursor]:
         yield cur
         conn.commit()
     except Exception:
+        logger.exception("Database transaction failed; rolling back")
         conn.rollback()
         raise
     finally:
