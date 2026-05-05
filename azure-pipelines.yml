@@ -1,9 +1,19 @@
-# Azure Pipelines does not load a checked-in `.env` file. Define the same names as `.env.example`
-# under Pipelines → Variables (mark secrets). Use $(VAR_NAME) below to inject them.
-# Current steps only run lint + smoke tests; variables may be empty until you add integration tests.
+# Azure Pipelines — CI for ordering-service
+# - Ruff: static lint on services/, libs/, tests/
+# - Pytest: smoke (OpenAPI) + unit tests for services/ordering/domain.py (no database)
+#
+# Azure DevOps does not use a checked-in .env. Define the same variable names as .env.example
+# under Pipeline → Variables (mark secrets). $(VAR_NAME) below forwards them to pytest if you add DB-backed tests later.
 
 trigger:
-  - main
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
 
 pool:
   vmImage: ubuntu-latest
@@ -12,6 +22,9 @@ variables:
   pythonVersion: "3.13"
 
 steps:
+  - checkout: self
+    displayName: Checkout repository
+
   - task: UsePythonVersion@0
     inputs:
       versionSpec: $(pythonVersion)
@@ -20,15 +33,21 @@ steps:
   - script: |
       python -m pip install --upgrade pip
       pip install -r requirements.txt -r requirements-dev.txt
-    displayName: Install dependencies
+    displayName: Install runtime and dev dependencies
+
+  - script: |
+      python -c "import sys; print(sys.version)"
+      ruff --version
+      pytest --version
+    displayName: Print toolchain versions
 
   - script: |
       ruff check .
-    displayName: Ruff (lint)
+    displayName: Ruff lint
 
   - script: |
       pytest tests/ -q --tb=short
-    displayName: Pytest
+    displayName: Pytest (smoke + domain unit tests)
     env:
       DB_SERVER: $(DB_SERVER)
       DB_DATABASE: $(DB_DATABASE)
