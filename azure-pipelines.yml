@@ -46,8 +46,8 @@ steps:
     displayName: Ruff lint
 
   - script: |
-      pytest tests/ -q --tb=short
-    displayName: Pytest (smoke + domain unit tests)
+      pytest tests/ -v --tb=short
+    displayName: Pytest (smoke + domain unit tests, verbose per test)
     env:
       DB_SERVER: $(DB_SERVER)
       DB_DATABASE: $(DB_DATABASE)
