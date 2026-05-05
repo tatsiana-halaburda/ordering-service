@@ -11,7 +11,8 @@ import pyodbc
 from fastapi import FastAPI, HTTPException, Query, status
 from libs.db import cursor, transaction
 from libs.service_bus import send_json_message
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from services.ordering import domain
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,14 @@ class OrderItemCreate(BaseModel):
     ingredient_id: uuid.UUID
     quantity: float = Field(gt=0)
     unit_price: float = Field(ge=0)
+
+    @field_validator("quantity")
+    @classmethod
+    def _validate_quantity(cls, v: float) -> float:
+        try:
+            return domain.validate_item_quantity(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class OrderCreate(BaseModel):
@@ -214,7 +223,11 @@ def list_orders(status_filter: str | None = Query(default=None, alias="status"))
 @app.post("/orders", response_model=OrderSummary, status_code=status.HTTP_201_CREATED)
 def create_order(body: OrderCreate) -> OrderSummary:
     oid = uuid.uuid4()
-    total = sum(it.quantity * it.unit_price for it in body.items)
+    try:
+        line_items = [domain.LineItem(it.quantity, it.unit_price) for it in body.items]
+        total = float(domain.compute_totals(line_items, tax_rate=0.0).total)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     with transaction() as cur:
         cur.execute(
             """
@@ -341,10 +354,15 @@ async def get_order(id: uuid.UUID) -> OrderDetail:
 
 @app.put("/orders/{id}", response_model=OrderSummary)
 def update_order(id: uuid.UUID, body: OrderUpdate) -> OrderSummary:
-    get_order_summary(id)
+    summary_before = get_order_summary(id)
     fields = body.model_dump(exclude_unset=True)
     if not fields:
-        return get_order_summary(id)
+        return summary_before
+    if "status" in fields and fields["status"] != summary_before.status:
+        try:
+            domain.validate_transition(summary_before.status, fields["status"])
+        except domain.InvalidTransition as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     sets: list[str] = []
     params: list[Any] = []
     if "status" in fields:
@@ -363,6 +381,35 @@ def update_order(id: uuid.UUID, body: OrderUpdate) -> OrderSummary:
             params,
         )
     return get_order_summary(id)
+
+
+@app.post("/orders/{id}/submit", response_model=OrderSummary)
+def submit_order(id: uuid.UUID) -> OrderSummary:
+    summary_before = get_order_summary(id)
+    try:
+        domain.validate_transition(summary_before.status, "Submitted")
+    except domain.InvalidTransition as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    with transaction() as cur:
+        cur.execute(
+            """
+            UPDATE [Tanya_Ordering].[Orders]
+            SET Status = ?
+            WHERE OrderId = ?
+            """,
+            ("Submitted", str(id)),
+        )
+    out = get_order_summary(id)
+    send_json_message(
+        {
+            "event": "order_submitted",
+            "order_id": str(id),
+            "status": out.status,
+            "total_cost": out.total_cost,
+        }
+    )
+    logger.info("Order submitted: order_id=%s", id)
+    return out
 
 
 @app.delete("/orders/{id}", status_code=status.HTTP_204_NO_CONTENT)
